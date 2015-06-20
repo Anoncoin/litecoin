@@ -5,6 +5,7 @@
 
 #include "walletview.h"
 
+#include "accountspage.h"
 #include "addressbookpage.h"
 #include "askpassphrasedialog.h"
 #include "anoncoingui.h"
@@ -17,6 +18,8 @@
 #include "signverifymessagedialog.h"
 #include "transactiontablemodel.h"
 #include "transactionview.h"
+#include "util.h"
+#include "wallet.h"
 #include "walletmodel.h"
 
 #include "ui_interface.h"
@@ -27,6 +30,8 @@
 #include <QHBoxLayout>
 #include <QProgressDialog>
 #include <QPushButton>
+#include <QTableWidget>
+#include <QTableWidgetItem>
 #include <QVBoxLayout>
 
 WalletView::WalletView(QWidget *parent):
@@ -38,6 +43,7 @@ WalletView::WalletView(QWidget *parent):
     overviewPage = new OverviewPage();
 
     transactionsPage = new QWidget(this);
+    transactionsPage->setObjectName("transactionsPage");
     QVBoxLayout *vbox = new QVBoxLayout();
     QHBoxLayout *hbox_buttons = new QHBoxLayout();
     transactionView = new TransactionView(this);
@@ -52,13 +58,17 @@ WalletView::WalletView(QWidget *parent):
     vbox->addLayout(hbox_buttons);
     transactionsPage->setLayout(vbox);
 
+    accountsPage = new AccountsPage();
     receiveCoinsPage = new ReceiveCoinsDialog();
     sendCoinsPage = new SendCoinsDialog();
+    addressBookPage = new AddressBookPage(AddressBookPage::ForEditing, AddressBookPage::SendingTab);
 
     addWidget(overviewPage);
+    addWidget(accountsPage);
     addWidget(transactionsPage);
     addWidget(receiveCoinsPage);
     addWidget(sendCoinsPage);
+    addWidget(addressBookPage);
 
     // Clicking on a transaction on the overview pre-selects the transaction on the transaction history page
     connect(overviewPage, SIGNAL(transactionClicked(QModelIndex)), transactionView, SLOT(focusTransaction(QModelIndex)));
@@ -69,10 +79,14 @@ WalletView::WalletView(QWidget *parent):
     // Clicking on "Export" allows to export the transaction list
     connect(exportButton, SIGNAL(clicked()), transactionView, SLOT(exportClicked()));
 
+    // Pass through messages from accountsPage
+    connect(accountsPage, SIGNAL(message(QString,QString,unsigned int)), this, SIGNAL(message(QString,QString,unsigned int)));
     // Pass through messages from sendCoinsPage
     connect(sendCoinsPage, SIGNAL(message(QString,QString,unsigned int)), this, SIGNAL(message(QString,QString,unsigned int)));
     // Pass through messages from transactionView
     connect(transactionView, SIGNAL(message(QString,QString,unsigned int)), this, SIGNAL(message(QString,QString,unsigned int)));
+    // Pass through messages from addressBookPage
+    connect(addressBookPage, SIGNAL(message(QString,QString,unsigned int)), this, SIGNAL(message(QString,QString,unsigned int)));
 }
 
 WalletView::~WalletView()
@@ -111,8 +125,10 @@ void WalletView::setWalletModel(WalletModel *walletModel)
     // Put transaction list in tabs
     transactionView->setModel(walletModel);
     overviewPage->setWalletModel(walletModel);
+    accountsPage->setModel(walletModel);
     receiveCoinsPage->setModel(walletModel);
     sendCoinsPage->setModel(walletModel);
+    addressBookPage->setModel(walletModel);
 
     if (walletModel)
     {
@@ -172,6 +188,11 @@ void WalletView::gotoSendCoinsPage(QString addr)
 
     if (!addr.isEmpty())
         sendCoinsPage->setAddress(addr);
+}
+
+void WalletView::gotoAddressBookPage()
+{
+    setCurrentWidget(addressBookPage);
 }
 
 void WalletView::gotoSignMessageTab(QString addr)
@@ -269,7 +290,8 @@ void WalletView::usedSendingAddresses()
         return;
     AddressBookPage *dlg = new AddressBookPage(AddressBookPage::ForEditing, AddressBookPage::SendingTab, this);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
-    dlg->setModel(walletModel->getAddressTableModel());
+    dlg->setModel(walletModel);
+    dlg->setModal(true);
     dlg->show();
 }
 
@@ -279,7 +301,8 @@ void WalletView::usedReceivingAddresses()
         return;
     AddressBookPage *dlg = new AddressBookPage(AddressBookPage::ForEditing, AddressBookPage::ReceivingTab, this);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
-    dlg->setModel(walletModel->getAddressTableModel());
+    dlg->setModel(walletModel);
+    dlg->setModal(true);
     dlg->show();
 }
 
@@ -304,4 +327,41 @@ void WalletView::showProgress(const QString &title, int nProgress)
     }
     else if (progressDialog)
         progressDialog->setValue(nProgress);
+}
+
+void WalletView::gotoAccountsPage()
+{
+    double amount;
+    setCurrentWidget(accountsPage);
+    accountsPage->tableWidget->clear();
+    while ( accountsPage->tableWidget->rowCount() > 0 ) {
+        accountsPage->tableWidget->removeRow(0);
+    }
+
+    map<CTxDestination, int64_t> balances = walletModel->getWallet()->GetAddressBalances();
+    BOOST_FOREACH(set<CTxDestination> grouping, walletModel->getWallet()->GetAddressGroupings())
+    {
+        BOOST_FOREACH(CTxDestination address, grouping)
+        {
+            amount = (double)balances[address] / (double)COIN;
+
+            // Turn ofsorting while we are inserting rows
+            accountsPage->tableWidget->setSortingEnabled(false);
+            accountsPage->tableWidget->insertRow(0);
+            accountsPage->tableWidget->setItem(0, 0, new QTableWidgetItem( QString("")));
+            accountsPage->tableWidget->setItem(0, 1, new QTableWidgetItem( QString::fromStdString(CAnoncoinAddress(address).ToString()) ));
+            accountsPage->tableWidget->setItem(0, 2, new QTableWidgetItem( QString::number(amount) ));
+            {
+                LOCK(walletModel->getWallet()->cs_wallet);
+                if (walletModel->getWallet()->mapAddressBook.find(CAnoncoinAddress(address).Get()) != walletModel->getWallet()->mapAddressBook.end())
+                    accountsPage->tableWidget->setItem(0, 0, new QTableWidgetItem( QString::fromStdString(walletModel->getWallet()->mapAddressBook.find(CAnoncoinAddress(address).Get())->second.name) ));
+            }
+            accountsPage->tableWidget->setSortingEnabled(true);
+        }
+    }
+    accountsPage->setModel(walletModel);
+    accountsPage->setParent(this);
+    accountsPage->setModal(true);
+    accountsPage->setAttribute(Qt::WA_DeleteOnClose);
+    accountsPage->show();
 }

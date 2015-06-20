@@ -21,9 +21,18 @@
 #include "i2pwrapper.h"
 #endif
 
+#include <QObject>
+#include <QApplication>
 #include <QNetworkProxy>
 #include <QSettings>
 #include <QStringList>
+#include <QDir>
+#include <QFile>
+#if QT_VERSION < 0x050000
+#include <QUrl>
+#endif
+#include <QStyle>
+#include <QTextStream>
 
 // Only needed because we have a temporary readonly on the i2p settings
 #ifdef NOTYET_ENABLE_I2PSAM
@@ -134,6 +143,12 @@ void OptionsModel::Init()
         addOverriddenOption("-lang");
 
     language = settings.value("language").toString();
+    selectedTheme = settings.value("selectedTheme", "(default)").toString();
+    settings.setValue("selectedTheme", selectedTheme);
+    applyTheme();
+
+    if (!selectedTheme.isEmpty())
+        SoftSetArg("-theme", selectedTheme.toStdString());
 #ifdef ENABLE_I2PSAM
     // Initialize our options model parameters for I2P session variables, from what has already been set, primarily from the variables in anoncoin.conf
     // ToDo: These have become read-only, yet the interface still needs to be changed.
@@ -229,6 +244,8 @@ QVariant OptionsModel::data(const QModelIndex & index, int role) const
             return strThirdPartyTxUrls;
         case Language:
             return settings.value("language");
+        case OurTheme:
+            return settings.value("selectedTheme");
         case CoinControlFeatures:
             return fCoinControlFeatures;
         case DatabaseCache:
@@ -364,6 +381,10 @@ bool OptionsModel::setData(const QModelIndex & index, const QVariant & value, in
                 setRestartRequired(true);
             }
             break;
+        case OurTheme:
+            settings.setValue("selectedTheme", value);
+            applyTheme();
+            break;
         case CoinControlFeatures:
             fCoinControlFeatures = value.toBool();
             settings.setValue("fCoinControlFeatures", fCoinControlFeatures);
@@ -454,4 +475,115 @@ bool OptionsModel::isRestartRequired()
 {
     QSettings settings;
     return settings.value("fRestartRequired", false).toBool();
+}
+
+bool OptionsModel::applyTheme()
+{
+    QSettings settings;
+    // template variables : key => value
+    QMap<QString, QString> variables;
+    QString sTheme = settings.value("selectedTheme", "(default)").toString();
+    // The datadir is where the wallet and block are kept
+    QString ddDir = QDir::fromNativeSeparators( QString::fromStdString ( GetDataDir().string() ) );
+    // path to selected theme dir, using native slashes
+    QString themeDir = ddDir + "/themes/" + sTheme;
+
+    // create it if needed
+    QDir themesDir(ddDir);
+    if (!themesDir.cd("themes")) {
+        // if themes doesn't exist, create it
+        themesDir.mkdir("themes");
+        themesDir.cd("themes");
+    }
+
+    // if theme selected
+    if ( (sTheme != "") && (sTheme != "(default)") ) {
+        QFile qss(themeDir + "/styles.qss");
+        // open qss stylesheet
+        if (qss.open(QFile::ReadOnly))
+        {
+            // read stylesheet
+            QString styleSheet = QString(qss.readAll());
+            QTextStream in(&qss);
+            // rewind
+            in.seek(0);
+            bool readingVariables = false;
+
+            // seek for variables
+            while(!in.atEnd()) {
+                QString line = in.readLine();
+                // variables starts here
+                if (line == "/** [VARS]") {
+                    readingVariables = true;
+                }
+                // variables end here
+                if (line == "[/VARS] */") {
+                    break;
+                }
+                // if we're reading variables - store them in a map
+                // Idea came from ZeeWolf's themes in Hyperstake
+                if (readingVariables == true) {
+                    // skip empty lines
+                    if (line.length()>3 && line.contains('=')) {
+                        QStringList fields = line.split("=");
+                        QString var = fields.at(0).trimmed();
+                        QString value = fields.at(1).trimmed();
+                        variables[var] = value;
+                    }
+                }
+            }
+
+            // For simpler use we replace "_themesdir" in the
+            // stylesheet with the appropriate path.
+            styleSheet.replace("_themesdir", themeDir);
+
+            QMapIterator<QString, QString> variable(variables);
+            variable.toBack();
+            // iterate backwards to prevent overwriting variables
+            while (variable.hasPrevious()) {
+                variable.previous();
+                // replace variables
+                styleSheet.replace(variable.key(), variable.value());
+            }
+
+            qss.close();
+
+            qApp->setStyleSheet(styleSheet);
+
+            // Promote style change
+            QWidgetList widgets = QApplication::allWidgets();
+            for (int i = 0; i < widgets.size(); ++i) {
+                QWidget *widget = widgets.at(i);
+                QEvent event(QEvent::StyleChange);
+                QApplication::sendEvent(widget, &event);
+            }
+        }
+
+        // Set our icon search path
+        QIcon::setThemeName( sTheme );
+
+    } else {
+        // Set it to "(default)"
+        QSettings settings;
+        settings.setValue("selectedTheme", QString("(default)") );
+        QFile qss(":style/default");
+        // open qss stylesheet
+        if (qss.open(QFile::ReadOnly))
+        {
+            // read stylesheet
+            QString styleSheet = QString(qss.readAll());
+            qss.close();
+            qApp->setStyleSheet(styleSheet);
+
+            // Promote style change
+            QWidgetList widgets = QApplication::allWidgets();
+            for (int i = 0; i < widgets.size(); ++i) {
+                QWidget *widget = widgets.at(i);
+                QEvent event(QEvent::StyleChange);
+                QApplication::sendEvent(widget, &event);
+            }
+        }
+    }
+
+    return true;
 }

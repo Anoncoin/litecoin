@@ -99,6 +99,8 @@ private:
     QAction *sendCoinsAction;
     QAction *usedSendingAddressesAction;
     QAction *usedReceivingAddressesAction;
+    QAction *addressesAction;
+    QAction *accountsAction;
     QAction *signMessageAction;
     QAction *verifyMessageAction;
     QAction *aboutAction;
@@ -195,6 +197,10 @@ private slots:
     void gotoSignMessageTab(QString addr = "");
     /** Show Sign/Verify Message dialog and switch to verify message tab */
     void gotoVerifyMessageTab(QString addr = "");
+    /** Display accounts and totals */
+    void gotoAccountsPage();
+    /** Switch to address page */
+    void gotoAddressBookPage();
 
     /** Show open dialog */
     void openClicked();

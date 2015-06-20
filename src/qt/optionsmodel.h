@@ -5,6 +5,7 @@
 #ifndef OPTIONSMODEL_H
 #define OPTIONSMODEL_H
 
+
 // Many builder specific things set in the config file, for any source files where we rely on moc_xxx files being generated
 // it is best to include the anoncoin-config.h in the header file itself.  Not the .cpp src file, because otherwise any
 // conditional compilation guidelines, which rely on the build configuration, will not be present in the moc_xxx files.
@@ -69,12 +70,14 @@ public:
         I2POutboundIPRestriction,   // int
         I2POutboundPriority,        // int
 #endif // ENABLE_I2PSAM
+        OurTheme,                   // QString
         OptionIDRowCount,
     };
 
     void Init();
     void Reset();
 
+    bool applyTheme();
     int rowCount(const QModelIndex & parent = QModelIndex()) const;
     QVariant data(const QModelIndex & index, int role = Qt::DisplayRole) const;
     bool setData(const QModelIndex & index, const QVariant & value, int role = Qt::EditRole);
@@ -87,6 +90,7 @@ public:
     int getDisplayUnit() { return nDisplayUnit; }
     QString getThirdPartyTxUrls() { return strThirdPartyTxUrls; }
     bool getProxySettings(QNetworkProxy& proxy) const;
+    QString getselectedTheme() { return selectedTheme; }
     bool getCoinControlFeatures() { return fCoinControlFeatures; }
     const QString& getOverriddenByCommandLine() { return strOverriddenByCommandLine; }
 
@@ -101,6 +105,7 @@ private:
     QString language;
     int nDisplayUnit;
     QString strThirdPartyTxUrls;
+    QString selectedTheme;
     bool fCoinControlFeatures;
     /* settings that were overriden by command-line */
     QString strOverriddenByCommandLine;
